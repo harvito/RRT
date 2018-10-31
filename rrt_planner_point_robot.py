@@ -172,7 +172,9 @@ def rrt_search(G, tx, ty):
     # Implement the rrt_algorithm in this section of the code.
     # You should call genPoint() within this function to 
     #get samples from different distributions.
+    numIt = 0
     while 1:
+        numIt += 1
         randPoint = genPoint(True)
         closestOnTreeIndex = closestPointToPoint(G, randPoint)
         closestPointOnTree = vertices[closestOnTreeIndex]
@@ -225,7 +227,7 @@ def rrt_search(G, tx, ty):
                 n += 1
                 if k == 0:
                     break
-            return n
+            return numIt, n
 
 #ENTRY POINT
 print('RRT by Mike Harvey')
@@ -288,6 +290,7 @@ if visualize:
 
 maxvertex += 1
 stepIteration = 0
+print "step, numIt, numEdges, pathLen, ms"
 while 1:
     # graph G
     G = [  [ 0 ]  , [] ]   # nodes, edges
@@ -301,12 +304,13 @@ while 1:
     #canvas.events()
     
     startTime = time.time()
-    n = rrt_search(G, tx, ty)
+    numIt, numEdges = rrt_search(G, tx, ty)
     endTime = time.time()
+    pathLen = SMALLSTEP*(numEdges-1) + 14 #first edge, sqrt(200)
     #canvas.events()
     #redraw()
     #canvas.mainloop()
-    print "%i," %(1000.0*(endTime - startTime)), "%i," %n, "%i" %SMALLSTEP
+    print "%i," %SMALLSTEP, "%i," %numIt, "%i," %numEdges, "%i," %pathLen, "%i" %(1000.0*(endTime - startTime)) 
     sys.stdout.flush()
     
     stepIteration += 1
