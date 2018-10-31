@@ -10,18 +10,17 @@ import imageToRects
 
 visualize = 1
 prompt_before_next=1  # ask before re-running sonce solved
-SMALLSTEP = 4 # what our "local planner" can handle.
+SMALLSTEP = 50 # what our "local planner" can handle.
 
 XMAX=1800
 YMAX=1000
 G = [  [ 0 ]  , [] ]   # nodes, edges
 
-
 s,obstacles = imageToRects.imageToRects(sys.argv[1])
+sys.stdout.flush() #show the done message
 
 XMAX = s[0]
 YMAX = s[1]
-       
 
 
 # goal/target
@@ -44,13 +43,17 @@ def drawGraph(G):
     global vertices,nodes,edges
     if not visualize: return
     for i in G[edges]:
-        f len(vertices)!=1:
-            canvas.polyline(  [vertices[i[0]], vertices[i[1]] ]  )
+        if len(vertices)!=1:
+            canvas.polyline(  [vertices[i[0]], vertices[i[1]] ],  )
 
 
-def genPoint():
-    x = random.randRange(XMAX)
-    y = random.randange(YMAX)
+def genPoint(gauss):
+    if gauss:
+        x = random.gauss(tx, sigmax_for_randgen)
+        y = random.gauss(ty, sigmay_for_randgen)
+    else:
+        x = random.randrange(XMAX)
+        y = random.randrange(YMAX)
     return [x,y]
 
 def genvertex():
@@ -119,7 +122,7 @@ def pickGvertex():
 def redraw():
     canvas.clear()
     canvas.markit(start_x, start_y, r=SMALLSTEP)
-    canvas.markit( tx, ty, r=SMALLSTEP )
+    canvas.markit( tx, ty, r=2*SMALLSTEP )
     drawGraph(G)
     for o in obstacles: canvas.showRect(o, outline='blue', fill='blue')
     canvas.delete("debug")
@@ -157,7 +160,7 @@ def lineHitsRect(p1,p2,r):
    return 0
 
 def inRect(p,rect,dilation):
-   """ Return 1 in p is inside rect, dilated by dilation (for edge cases). """
+   """ Return 1 if p is inside rect, dilated by dilation (for edge cases). """
    if p[0]<rect[0]-dilation: return 0
    if p[1]<rect[1]-dilation: return 0
    if p[0]>rect[2]+dilation: return 0
@@ -170,17 +173,66 @@ def rrt_search(G, tx, ty):
     # You should call genPoint() within this function to 
     #get samples from different distributions.
     while 1:
-        xy = genPoint()
-        nodeToExtend = closestPointToPoint(G, xy);
-
-
-    pass
+        randPoint = genPoint(True)
+        closestOnTreeIndex = closestPointToPoint(G, randPoint)
+        closestPointOnTree = vertices[closestOnTreeIndex]
+        newLine = lineFromPoints(closestPointOnTree, randPoint)
+        
+        # create the new line and new point
+        newLine[0] *= SMALLSTEP
+        newLine[1] *= SMALLSTEP
+        newPoint = []
+        newPoint.append(closestPointOnTree[0] + newLine[0])
+        newPoint.append(closestPointOnTree[1] + newLine[1])
+        
+        #verify new point in window
+        if inRect(newPoint, (0, 0, XMAX, YMAX), 0)==0:
+            continue
+        
+        #verify closest point to new point is original closest point on tree
+        if closestPointToPoint(G, newPoint) != closestOnTreeIndex:
+            continue
+        
+        #verify new point not in any obstacles (buffer = 3 to avoid edge cases)
+        cont = 0
+        for o in obstacles:
+            if inRect(newPoint, o, 3)==1:
+                cont = 1
+        if cont==1:
+            continue
+        
+        #verify new line does not cross any obstacle boundaries
+        for o in obstacles:
+            if lineHitsRect(closestPointOnTree, newPoint, o)==1:
+                cont = 1
+        if cont==1:
+            continue
+        
+        #new point is valid, add it
+        newNode = len(vertices)
+        G[nodes].append(len(vertices)) #new node
+        vertices.append(newPoint) #coords of new node
+        G[edges].append((closestOnTreeIndex, len(vertices)-1)) #new edge connecting
+        #redraw()
+        #canvas.events()
+        
+        #check for win condition
+        if pointPointDistance(newPoint, (tx, ty)) < 2*SMALLSTEP:
+            k = newNode
+            n = 0
+            while 1:
+                k=returnParent(k)
+                n += 1
+                if k == 0:
+                    break
+            return n
 
 #ENTRY POINT
-print('Hey there')
+print('RRT by Mike Harvey')
+sys.stdout.flush()
 if visualize:
     canvas = drawSample.SelectRect(xmin=0,ymin=0,xmax=XMAX ,ymax=YMAX, nrects=0, keepcontrol=0)#, rescale=800/1800.)
-
+    redraw()
 
 if 0:  # line intersection testing
         obstacles.append( [ 75,60,125,500 ] )  # tall vertical
@@ -235,19 +287,32 @@ if visualize:
 
 
 maxvertex += 1
-
+stepIteration = 0
 while 1:
     # graph G
     G = [  [ 0 ]  , [] ]   # nodes, edges
     vertices = [ [10,270], [20,280]   ]
-    redraw()
-
+    #redraw()
+    
     G[edges].append( (0,1) )
     G[nodes].append(1)
-    if visualize: canvas.markit( tx, ty, r=SMALLSTEP )
+    #if visualize: canvas.markit( tx, ty, r=2*SMALLSTEP ) #draw goal
 
-    drawGraph(G)
-    rrt_search(G, tx, ty)
+    #canvas.events()
+    
+    startTime = time.time()
+    n = rrt_search(G, tx, ty)
+    endTime = time.time()
+    #canvas.events()
+    #redraw()
+    #canvas.mainloop()
+    print "%i," %(1000.0*(endTime - startTime)), "%i," %n, "%i" %SMALLSTEP
+    sys.stdout.flush()
+    
+    stepIteration += 1
+    if stepIteration >= 10:
+        break
+    #canvas = drawSample.SelectRect(xmin=0,ymin=0,xmax=XMAX ,ymax=YMAX, nrects=0, keepcontrol=0)
 
 #canvas.showRect(rect,fill='red')
 
