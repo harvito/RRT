@@ -6,8 +6,8 @@ RRT1Data <- read.csv("RRT1Data.csv")
 RRT2Data <- read.csv("RRT2Data.csv")
 
 #factorize
-RRT1Data$step <= as.factor(RRT1Data$step)
-RRT2Data$robLen <= as.factor(RRT2Data$robLen)
+RRT1Data$step <- as.factor(RRT1Data$step)
+RRT2Data$robLen <- as.factor(RRT2Data$robLen)
 
 # make plots and save them
 ggplot(RRT1Data, aes(x=step, y=numIt)) + geom_boxplot() + scale_y_continuous(trans="log10") + ggtitle("Number of Iterations of RRT Loop vs. Step Size") + xlab("Step Size (Pixels)") + ylab("Number of Iterations")
