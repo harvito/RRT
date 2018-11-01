@@ -8,9 +8,10 @@ import imageToRects
 
 #display = drawSample.SelectRect(imfile=im2Small,keepcontrol=0,quitLabel="")
 
-visualize = 1
+visualize = 0
 prompt_before_next=1  # ask before re-running sonce solved
-SMALLSTEP = 3 # what our "local planner" can handle.
+SMALLSTEP = 12 # what our "local planner" can handle.
+DELTHETA = math.pi/8.0
 
 XMAX=1800
 YMAX=1000
@@ -24,16 +25,21 @@ YMAX = s[1]
 
 
 # goal/target
-tx = 900
-ty = 300
+tx = 800
+ty = 150
+ttheta = 0
+
 # start
-start_x = 10
-start_y = 270
+start_x = 100
+start_y = 630
+start_theta = 0
+
+ROBLEN = 2
+
 
 vertices = [ [start_x,start_y] ]
+rotations = [ start_theta ]
 
-sigmax_for_randgen = XMAX/2.0
-sigmay_for_randgen = YMAX/2.0
 
 nodes=0
 edges=1
@@ -44,17 +50,18 @@ def drawGraph(G):
     if not visualize: return
     for i in G[edges]:
         if len(vertices)!=1:
+            p = vertices[i[0]]
+            r = rotations[i[0]]
             canvas.polyline(  [vertices[i[0]], vertices[i[1]] ],  )
+            canvas.polyline( [[  p[0]-(ROBLEN/2)*math.cos(r), p[1]-(ROBLEN/2)*math.sin(r)  ], [p[0], p[1]]], style=1)
+            canvas.polyline( [[  p[0], p[1]  ], [p[0]+(ROBLEN/2)*math.cos(r), p[1]+(ROBLEN/2)*math.sin(r)]], style=2)
 
 
-def genPoint(gauss):
-    if gauss:
-        x = random.gauss(tx, sigmax_for_randgen)
-        y = random.gauss(ty, sigmay_for_randgen)
-    else:
-        x = random.randrange(XMAX)
-        y = random.randrange(YMAX)
-    return [x,y]
+def genConfig():
+    x = random.randrange(XMAX)
+    y = random.randrange(YMAX)
+    LR = random.randint(0, 1) #at each step, robot turns either right or left. no need to sample from [0, 2pi]
+    return [x,y,LR]
 
 def genvertex():
     vertices.append( genPoint() )
@@ -110,7 +117,7 @@ def returnParent(k):
     """ Return parent note for input node k. """
     for e in G[edges]:
         if e[1]==k: 
-            canvas.polyline(  [vertices[e[0]], vertices[e[1]] ], style=3  )
+            if visualize: canvas.polyline(  [vertices[e[0]], vertices[e[1]] ], style=3  )
             return e[0]
 
 def pickGvertex():
@@ -174,52 +181,90 @@ def rrt_search(G, tx, ty):
     #get samples from different distributions.
     numIt = 0
     while 1:
-        numIt += 1
-        randPoint = genPoint(True)
-        closestOnTreeIndex = closestPointToPoint(G, randPoint)
-        closestPointOnTree = vertices[closestOnTreeIndex]
-        newLine = lineFromPoints(closestPointOnTree, randPoint)
         
-        # create the new line and new point
+    
+        numIt += 1
+        randConfig = genConfig()
+        closestOnTreeIndex = closestPointToPoint(G, (randConfig[0], randConfig[1]))
+        closestPointOnTree = vertices[closestOnTreeIndex]
+        closestPointTheta = rotations[closestOnTreeIndex]
+        
+        # create the new line, new point, and new theta
+        newLine = lineFromPoints(closestPointOnTree, (randConfig[0], randConfig[1]))
         newLine[0] *= SMALLSTEP
         newLine[1] *= SMALLSTEP
         newPoint = []
         newPoint.append(closestPointOnTree[0] + newLine[0])
         newPoint.append(closestPointOnTree[1] + newLine[1])
         
-        #verify new point in window
+        #dealing with cases close to the target and we're all turned around
+        #if we're within SMALLSTEP*pi/DELTHETA of the target, turn toward target theta.
+        if pointPointDistance(closestPointOnTree, (tx, ty)) <= SMALLSTEP*math.pi/DELTHETA:
+            if (closestPointTheta - ttheta)%(2*math.pi) < math.pi:
+                newTheta = closestPointTheta-DELTHETA #turn right; cw
+            else:
+                newTheta = closestPointTheta+DELTHETA #turn left; ccw
+        else:
+            if randConfig[2]==0:
+                newTheta = closestPointTheta+DELTHETA #turn left; ccw
+            else:
+                newTheta = closestPointTheta-DELTHETA #turn right; cw
+        newTheta %= (2*math.pi) #correct for fun
+        
+        # find robot's old and new endpoints
+        oldFront = (closestPointOnTree[0] + (ROBLEN/2)*math.cos(closestPointTheta), closestPointOnTree[1] + (ROBLEN/2)*math.sin(closestPointTheta))
+        oldRear = (closestPointOnTree[0] + (ROBLEN/2)*math.cos(closestPointTheta+math.pi), closestPointOnTree[1] + (ROBLEN/2)*math.sin(closestPointTheta+math.pi))
+        newFront = (newPoint[0] + (ROBLEN/2)*math.cos(newTheta), newPoint[1] + (ROBLEN/2)*math.sin(newTheta))
+        newRear = (newPoint[0] + (ROBLEN/2)*math.cos(newTheta+math.pi), newPoint[1] + (ROBLEN/2)*math.sin(newTheta+math.pi))
+        
+        
+        #verify new points in window
         if inRect(newPoint, (0, 0, XMAX, YMAX), 0)==0:
+            continue
+        if inRect(newFront, (0, 0, XMAX, YMAX), 0)==0:
+            continue
+        if inRect(newRear, (0, 0, XMAX, YMAX), 0)==0:
             continue
         
         #verify closest point to new point is original closest point on tree
         if closestPointToPoint(G, newPoint) != closestOnTreeIndex:
             continue
         
-        #verify new point not in any obstacles (buffer = 3 to avoid edge cases)
+        #verify new points not in any obstacles (buffer = 2 to avoid edge cases)
         cont = 0
         for o in obstacles:
-            if inRect(newPoint, o, 3)==1:
+            if inRect(newPoint, o, 2)==1:
+                cont = 1
+            if inRect(newFront, o, 2)==1:
+                cont = 1
+            if inRect(newRear, o, 2)==1:
                 cont = 1
         if cont==1:
             continue
         
-        #verify new line does not cross any obstacle boundaries
+        #verify new lines do not cross any obstacle boundaries
         for o in obstacles:
             if lineHitsRect(closestPointOnTree, newPoint, o)==1:
                 cont = 1
+            if lineHitsRect(oldFront, newFront, o)==1:
+                cont = 1
+            if lineHitsRect(oldRear, newRear, o)==1:
+                cont = 1
         if cont==1:
             continue
         
-        #new point is valid, add it
+        #new config is valid, add it
         newNode = len(vertices)
-        G[nodes].append(len(vertices)) #new node
+        G[nodes].append(newNode) #new node
+        G[edges].append((closestOnTreeIndex, newNode)) #new edge connecting
         vertices.append(newPoint) #coords of new node
-        G[edges].append((closestOnTreeIndex, len(vertices)-1)) #new edge connecting
-        #redraw()
-        #canvas.events()
+        rotations.append(newTheta)
+        #if visualize==1:
+            #redraw()
+            #canvas.events()
         
         #check for win condition
-        if pointPointDistance(newPoint, (tx, ty)) < 2*SMALLSTEP:
+        if pointPointDistance(newPoint, (tx, ty)) < 2*SMALLSTEP and ((newTheta+2*DELTHETA)%(2*math.pi) - ttheta) <= 4*DELTHETA:
             k = newNode
             n = 0
             while 1:
@@ -290,34 +335,36 @@ if visualize:
 
 maxvertex += 1
 stepIteration = 0
-print "step, numIt, numEdges, pathLen, ms"
+print "length, numIt"
 while 1:
     # graph G
     G = [  [ 0 ]  , [] ]   # nodes, edges
-    vertices = [ [10,270], [20,280]   ]
-    #redraw()
+    vertices = [ [start_x,start_y] ]
+    rotations = [ start_theta ]
     
-    G[edges].append( (0,1) )
-    G[nodes].append(1)
-    #if visualize: canvas.markit( tx, ty, r=2*SMALLSTEP ) #draw goal
+    
+    
+    if visualize:
+        canvas.markit( tx, ty, r=2*SMALLSTEP ) #draw goal
+        canvas.polyline(  [(tx-(ROBLEN/2), ty), (tx, ty) ], style=1  )
+        canvas.polyline(  [(tx, ty), (tx+(ROBLEN/2), ty) ], style=2  )
 
-    #canvas.events()
+    
     
     startTime = time.time()
     numIt, numEdges = rrt_search(G, tx, ty)
     endTime = time.time()
     pathLen = SMALLSTEP*(numEdges-1) + 14 #first edge, sqrt(200)
-    #canvas.events()
-    #redraw()
+    
     #canvas.mainloop()
-    print "%i," %SMALLSTEP, "%i," %numIt, "%i," %numEdges, "%i," %pathLen, "%i" %(1000.0*(endTime - startTime)) 
+    print "%i," %ROBLEN, "%i" %numIt
     sys.stdout.flush()
     
     stepIteration += 1
     if stepIteration >= 10:
         stepIteration = 0
-        SMALLSTEP += 3
-        if SMALLSTEP > 30:
+        ROBLEN += 2
+        if SMALLSTEP > 20:
             break
     #canvas = drawSample.SelectRect(xmin=0,ymin=0,xmax=XMAX ,ymax=YMAX, nrects=0, keepcontrol=0)
 
